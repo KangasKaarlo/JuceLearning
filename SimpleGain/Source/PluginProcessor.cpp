@@ -22,10 +22,21 @@ SimpleGainAudioProcessor::SimpleGainAudioProcessor()
     ), treeState(*this, nullptr, "parameters", createParameterLayout())
 #endif
 {
+    treeState.addParameterListener("gain", this);
 }
 
 SimpleGainAudioProcessor::~SimpleGainAudioProcessor()
 {
+    treeState.removeParameterListener("gain", this);
+}
+
+void SimpleGainAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue) 
+{
+    if (parameterID == "gain") {
+        DBG(newValue);
+        rawGain = juce::Decibels::decibelsToGain(newValue);
+        DBG(rawGain);
+    }
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SimpleGainAudioProcessor::createParameterLayout() 
@@ -104,6 +115,7 @@ void SimpleGainAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    rawGain = juce::Decibels::decibelsToGain(static_cast<float>(*treeState.getRawParameterValue("gain")));
 }
 
 void SimpleGainAudioProcessor::releaseResources()
@@ -153,8 +165,6 @@ void SimpleGainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    float dbGain = *treeState.getRawParameterValue("gain");
-    float rawGain = juce::Decibels::decibelsToGain(dbGain);
     //Input as audioblock
     juce::dsp::AudioBlock<float> block (buffer);
 
@@ -187,12 +197,20 @@ void SimpleGainAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     // You should use this method to store your parameters in the memory block.
     // You could do that either as raw data, or use the XML or ValueTree classes
     // as intermediaries to make it easy to save and load complex data.
+    juce::MemoryOutputStream stream(destData, false);
+    treeState.state.writeToStream(stream);
 }
 
 void SimpleGainAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
+    auto tree = juce::ValueTree::readFromData(data, size_t(sizeInBytes));
+
+    if (tree.isValid()) {
+        treeState.state = tree;
+        rawGain = juce::Decibels::decibelsToGain(static_cast<float>(*treeState.getRawParameterValue("gain")));
+    }
 }
 
 //==============================================================================
