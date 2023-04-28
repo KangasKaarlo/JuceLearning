@@ -57,11 +57,13 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState treeState;
-
+   
 private:
-    float rawGain = 1.0;
+    
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    float rawGain = 1.0;
     void parameterChanged(const juce::String& parameterID, float newValue) override;
+    
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SimpleGainAudioProcessor)
 };

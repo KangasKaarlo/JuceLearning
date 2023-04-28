@@ -187,9 +187,10 @@ bool SimpleGainAudioProcessor::hasEditor() const
 
 juce::AudioProcessorEditor* SimpleGainAudioProcessor::createEditor()
 {
-    //return new SimpleGainAudioProcessorEditor (*this);
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new SimpleGainAudioProcessorEditor (*this, treeState);
+    //return new juce::GenericAudioProcessorEditor(*this);
 }
+
 
 //==============================================================================
 void SimpleGainAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
@@ -197,6 +198,7 @@ void SimpleGainAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     // You should use this method to store your parameters in the memory block.
     // You could do that either as raw data, or use the XML or ValueTree classes
     // as intermediaries to make it easy to save and load complex data.
+    
     juce::MemoryOutputStream stream(destData, false);
     treeState.state.writeToStream(stream);
 }
@@ -206,7 +208,7 @@ void SimpleGainAudioProcessor::setStateInformation (const void* data, int sizeIn
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
     auto tree = juce::ValueTree::readFromData(data, size_t(sizeInBytes));
-
+    DBG("load");
     if (tree.isValid()) {
         treeState.state = tree;
         rawGain = juce::Decibels::decibelsToGain(static_cast<float>(*treeState.getRawParameterValue("gain")));
