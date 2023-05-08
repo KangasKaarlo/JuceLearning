@@ -57,14 +57,15 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
     juce::AudioProcessorValueTreeState treeState;
 private:
-
     float rawGain = 1.0;
-    float treshold = 0.0;
-    float attack = 30.0;
-    float release = 100.0;
-    float limit = false;
+    bool limit = false;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void parameterChanged(const juce::String& parameterID, float newValue) override;
+    void updateParameters();
+    juce::dsp::Compressor<float> compressorModule;
+    juce::dsp::Limiter<float> limiterModule;
+    juce::dsp::Gain<float> gainModule;
+
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NewProjectAudioProcessor)
 };

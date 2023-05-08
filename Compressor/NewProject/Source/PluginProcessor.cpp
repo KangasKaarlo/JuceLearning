@@ -23,14 +23,21 @@ NewProjectAudioProcessor::NewProjectAudioProcessor()
 #endif
 {
     treeState.addParameterListener("gain", this);
-    treeState.addParameterListener("tresh", this);
+    treeState.addParameterListener("treshold", this);
     treeState.addParameterListener("attack", this);
     treeState.addParameterListener("release", this);
     treeState.addParameterListener("limit", this);
+    treeState.addParameterListener("sidechain", this);
 }
 
 NewProjectAudioProcessor::~NewProjectAudioProcessor()
 {
+    treeState.removeParameterListener("gain", this);
+    treeState.removeParameterListener("treshold", this);
+    treeState.removeParameterListener("attack", this);
+    treeState.removeParameterListener("release", this);
+    treeState.removeParameterListener("limit", this);
+    treeState.removeParameterListener("sidechain", this);
 }
 
 //==============================================================================
@@ -41,36 +48,40 @@ const juce::String NewProjectAudioProcessor::getName() const
 
 void NewProjectAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
-    if (parameterID == "gain") {
-        rawGain = juce::Decibels::decibelsToGain(newValue);
-    }
-    if (parameterID == "tresh") {
-        treshold = newValue;
-    }
-    if (parameterID == "attack") {
-        rawGain = newValue;
-    }
-    if (parameterID == "release") {
-        treshold = newValue;
-    }
-    if (parameterID == "limit") {
-        treshold = newValue;
-    }
+    
+    updateParameters();
+}
+void NewProjectAudioProcessor::updateParameters() {
+    compressorModule.setAttack(treeState.getRawParameterValue("attack")->load());
+    compressorModule.setRelease(treeState.getRawParameterValue("release")->load());
+    compressorModule.setThreshold(treeState.getRawParameterValue("treshold")->load());
+
+    gainModule.setGainDecibels(treeState.getRawParameterValue("gain")->load());
+    compressorModule.setRatio(4);
+
 }
 juce::AudioProcessorValueTreeState::ParameterLayout NewProjectAudioProcessor::createParameterLayout()
 {
     std::vector <std::unique_ptr<juce::RangedAudioParameter>> params;
 
+    juce::NormalisableRange<float> attackRange(1.0f, 200.0f, 1);
+    attackRange.setSkewForCentre(50.0f);
+
+    juce::NormalisableRange<float> releaseRange(1.0f, 200.0f, 1);
+    releaseRange.setSkewForCentre(80.0f);
+
     auto pGain = std::make_unique<juce::AudioParameterFloat>("gain", "Gain", -12.0, 12.0, 0.0);
-    auto pTresh = std::make_unique<juce::AudioParameterFloat>("treshold", "Treshold", -60, 10.0, 0.0);
-    auto pAttack = std::make_unique<juce::AudioParameterFloat>("attack", "Attack", 1, 200, 30);
-    auto pRelease = std::make_unique<juce::AudioParameterFloat>("release", "Release", 1, 200.0, 100.0);
+    auto pTresh = std::make_unique<juce::AudioParameterFloat>("treshold", "Treshold", -60.0f, 10.0f, 0.0f);
+    auto pAttack = std::make_unique<juce::AudioParameterFloat>("attack", "Attack", attackRange, 30);
+    auto pRelease = std::make_unique<juce::AudioParameterFloat>("release", "Release", releaseRange, 100.0);
     auto pLimiting = std::make_unique<juce::AudioParameterBool>("limit", "Limiter", false);
+    auto pSidechain = std::make_unique<juce::AudioParameterBool>("sidechain", "Sidechain", false);
     params.push_back(std::move(pGain));
     params.push_back(std::move(pTresh));
     params.push_back(std::move(pAttack));
     params.push_back(std::move(pRelease));
     params.push_back(std::move(pLimiting));
+    params.push_back(std::move(pSidechain));
     return{ params.begin(), params.end() };
 }
 
@@ -135,6 +146,16 @@ void NewProjectAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    juce::dsp::ProcessSpec spec;
+    spec.maximumBlockSize = samplesPerBlock;
+    spec.sampleRate = sampleRate;
+    spec.numChannels = getTotalNumInputChannels();
+
+    compressorModule.prepare(spec);
+    limiterModule.prepare(spec);
+    gainModule.prepare(spec);
+    gainModule.setRampDurationSeconds(0.02);
+    updateParameters();
 }
 
 void NewProjectAudioProcessor::releaseResources()
@@ -175,27 +196,11 @@ void NewProjectAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, buffer.getNumSamples());
+    //Input as audioblock
+    juce::dsp::AudioBlock<float> block(buffer);
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        auto* channelData = buffer.getWritePointer (channel);
-
-        // ..do something to the data...
-    }
+    compressorModule.process(juce::dsp::ProcessContextReplacing<float>(block));
+    gainModule.process(juce::dsp::ProcessContextReplacing<float>(block));
 }
 
 //==============================================================================
@@ -216,12 +221,21 @@ void NewProjectAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     // You should use this method to store your parameters in the memory block.
     // You could do that either as raw data, or use the XML or ValueTree classes
     // as intermediaries to make it easy to save and load complex data.
+    juce::MemoryOutputStream stream(destData, false);
+    treeState.state.writeToStream(stream);
 }
 
 void NewProjectAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
+    auto tree = juce::ValueTree::readFromData(data, size_t(sizeInBytes));
+    if (tree.isValid()) {
+        treeState.state = tree;
+        rawGain = juce::Decibels::decibelsToGain(static_cast<float>(*treeState.getRawParameterValue("gain")));
+        updateParameters();
+
+    }
 }
 
 //==============================================================================
